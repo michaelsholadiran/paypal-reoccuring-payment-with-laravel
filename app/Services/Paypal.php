@@ -1,75 +1,104 @@
 <?php
 
-use Illuminate\Support\Facades\Http;
+namespace App\Services;
+
+use Carbon\Carbon;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Http;
 
-class Paypal
+ class Paypal 
 {
-    private $secret;
 
-    private $client_id;
+  private $live_url;
 
-    private $sandbox_url;
+  private $sandbox_url;
 
-    private $live_url;
+  private $secret;
 
-    private $mode;
+  private $client_id;
 
-    public function __construct()
-    {
-        $this->secret = config('app.services.paypal.secret');
-        $this->client_id = config('app.services.paypal.client_id');
-        $this->sandbox_url = config('app.services.paypal.sandbox_url');
-        $this->live_url = config('app.services.paypal.live_url');
-        $this->mode = config('app.services.paypal.mode');
-    }
+  private $mode;
 
-    public function init()
-    {
+  private $url;
 
-        $headers = [
-            'X-PAYPAL-SECURITY-CONTEXT' => '{"scopes":["https://api-m.paypal.com/v1/subscription/.*","https://uri.paypal.com/services/subscription","openid"]}',
-            'Content-Type' => 'application/json',
-            'Accept' => 'application/json',
-            'Prefer' => 'return=representation',
-            'PayPal-Request-Id' => Str::random(21),
-        ];
+  private $returnUrl;
 
-        $url = $this->mode == 'sandbox' ? $this->sandbox_url : $this->live_url;
+  private $cancelUrl;
 
-        $data = [
-            'product_id' => 'PROD-XXCD1234QWER65782',
-            'name' => 'Video Streaming Service Plan',
-            'description' => 'Video Streaming Service basic plan',
-            'status' => 'ACTIVE',
-            'billing_cycles' => [
-                [
-                    'frequency' => [
-                        'interval_unit' => 'MONTH',
-                        'interval_count' => 1,
-                    ],
-                    'tenure_type' => 'TRIAL',
-                    'sequence' => 1,
-                    'total_cycles' => 2,
-                    'pricing_scheme' => [
-                        'fixed_price' => [
-                            'value' => '3',
-                            'currency_code' => 'USD',
-                        ],
-                    ],
-                ],
+  function __construct() {
+    $this->live_url = config('services.paypal.live_url');
+    $this->sandbox_url = config('services.paypal.sandbox_url');
+    $this->secret = config('services.paypal.secret');
+    $this->client_id = config('services.paypal.client_id');
+    $this->mode = config('services.paypal.mode');
+    $this->url = $this->mode =="sandbox"? $this->sandbox_url:$this->live_url;
+    $this->returnUrl = config('services.paypal.return_url');
+    $this->cancelUrl = config('services.paypal.cancel_url');
+  }
 
+  function createSubscription(string $planId , string $userEmail) : array {
+   
+    // return [$this->client_id,$this->secret];
+    $headers = [
+        'Content-Type'=> 'application/json',
+        'Accept'=> 'application/json',
+        'PayPal-Request-Id'=> Str::random(21),
+        'Prefer'=> 'return=representation',
+    ];
+
+    //2018-11-01T00:00:00Z
+    
+    $body = [
+        "plan_id" => $planId,
+        "subscriber" => [
+            "email_address" => $userEmail
+        ],
+        "application_context" => [
+            "brand_name" => config('app.name'),
+            "locale" => "en-US",
+            "shipping_preference" => "SET_PROVIDED_ADDRESS",
+            "user_action" => "SUBSCRIBE_NOW",
+            "payment_method" => [
+                "payer_selected" => "PAYPAL",
+                "payee_preferred" => "IMMEDIATE_PAYMENT_REQUIRED",
             ],
-            'payment_preferences' => [
-                'auto_bill_outstanding' => true,
-                'setup_fee_failure_action' => 'CONTINUE',
-                'payment_failure_threshold' => 3,
-            ],
+            "return_url" => $this->returnUrl,
+            "cancel_url" => $this->cancelUrl,
+        ],
+    ];
 
-        ];
+    $response = Http::withBasicAuth($this->client_id, $this->secret)->withHeaders($headers)->post($this->url."/v1/billing/subscriptions",$body)->json();
 
-         Http::withBasicAuth($this->client_id, $this->secret)->withHeaders($headers)->post($url, $data);
+    return $response;
+  } 
 
-         
-    }
+
+  function showSubscriptionDetails(string $subscriptionId) : array {
+
+    $headers = [
+        'Content-Type'=> 'application/json',
+        'Accept'=> 'application/json',
+        'X-PAYPAL-SECURITY-CONTEXT' => '{"scopes":["https://api-m.paypal.com/v1/subscription/.*","https://uri.paypal.com/services/subscription","openid"]}'
+    ];
+
+    $response = Http::withBasicAuth($this->client_id, $this->secret)->withHeaders($headers)->get($this->url."/v1/billing/subscriptions/{$subscriptionId}")->json();
+
+    return $response;
+  }
+
+  function cancelSubscription(string $subscriptionId) {
+    $headers = [
+      'Content-Type'=> 'application/json',
+      'Accept'=> 'application/json',
+      'X-PAYPAL-SECURITY-CONTEXT' => '{"scopes":["https://api-m.paypal.com/v1/subscription/.*","https://uri.paypal.com/services/subscription","openid"]}'
+    ];
+
+    $body = [
+      "reason" => "Done with with the service, and totally satisfied" // this could be dynamic
+    ];
+
+    $response = Http::withBasicAuth($this->client_id, $this->secret)->withHeaders($headers)->post($this->url."/v1/billing/subscriptions/{$subscriptionId}/cancel",$body)->json();
+
+    return $response;
+  }
 }

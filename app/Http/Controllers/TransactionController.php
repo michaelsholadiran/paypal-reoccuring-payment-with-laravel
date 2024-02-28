@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Paypal;
 use App\Models\Transaction;
 use Illuminate\Http\Request;
+
 
 class TransactionController extends Controller
 {
@@ -28,7 +30,8 @@ class TransactionController extends Controller
      */
     public function store(Request $request)
     {
-        //
+        $paypal = new Paypal;
+       return $paypal->createPlan(2);
     }
 
     /**
